@@ -87458,7 +87458,7 @@ window.BR = window.BR || {};
   // ── Loop ───────────────────────────────────────────────────────────────────
   let last = performance.now();
   function frame(now) {
-    const real = Math.min(0.05, (now - last) / 1000); last = now;
+    const real = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now;
     core.time += real;
     if (S.slowT > 0) { S.slowT -= real; if (S.slowT <= 0) S.slowF = 1; }
     const dt = real * S.slowF; core.dt = dt;
