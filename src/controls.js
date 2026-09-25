@@ -52,16 +52,15 @@
 
   // ── Touch layout (1280x720 UI space) ──
   const BTN = [
-    { id: 'fart', r: 75, x: 1072, y: 585, kind: 'hold' },
-    { id: 'kick', r: 56, x: 890, y: 640, kind: 'hold' },
-    { id: 'drift', r: 48, x: 930, y: 470, kind: 'hold' },
+    { id: 'fart', r: 78, x: 1080, y: 580, kind: 'hold' },
+    { id: 'drift', r: 54, x: 900, y: 632, kind: 'hold' },
     { id: 'pause', r: 30, x: 50, y: 50, kind: 'press' },
   ];
   GAS.forEach((g, i) => BTN.push({ id: 'gas' + (i + 1), gas: g, r: 33, x: 1232, y: 118 + i * 76, kind: 'gas', n: i + 1 }));
   BTN.forEach(b => { b.down = 0; b.flash = 0; });
   const B = {}; BTN.forEach(b => (B[b.id] = b));
-  const SLIDE = { cx: 230, cy: 600, half: 150 };
-  const stick = { id: null, bx: SLIDE.cx, by: SLIDE.cy, x: SLIDE.cx, v: 0 };
+  const STICK_R = 110, HOME = { x: 200, y: 560 };
+  const stick = { id: null, bx: HOME.x, by: HOME.y, x: HOME.x, y: HOME.y, mx: 0, my: 0 };
   const lookT = { id: null, x0: 0, v: 0 };
   const touches = new Map();
 
@@ -80,20 +79,23 @@
     else if (b.id === 'pause') pend.pause = true;
     else if (b.kind === 'gas') selectGas(b.n);
   }
-  function stickCalc() {
-    const dx = stick.x - stick.bx, raw = clamp(dx / SLIDE.half, -1, 1), a = Math.abs(raw);
-    stick.v = a < DEAD ? 0 : Math.sign(raw) * (a - DEAD) / (1 - DEAD);
+  function stickCalc() {  // floating stick: the base follows the thumb when it overshoots
+    let dx = stick.x - stick.bx, dy = stick.y - stick.by, len = Math.hypot(dx, dy);
+    if (len > STICK_R * 1.35) { const f = (len - STICK_R * 1.35) / len; stick.bx += dx * f; stick.by += dy * f; dx = stick.x - stick.bx; dy = stick.y - stick.by; len = Math.hypot(dx, dy); }
+    const raw = Math.min(1, len / STICK_R), m = raw < DEAD ? 0 : (raw - DEAD) / (1 - DEAD);
+    stick.mx = len > 0 ? dx / len * m : 0; stick.my = len > 0 ? -dy / len * m : 0;
   }
+  function stickReset() { stick.id = null; stick.mx = stick.my = 0; stick.bx = stick.x = HOME.x; stick.by = stick.y = HOME.y; }
   function onTouchStart(e) {
     if (e.cancelable) e.preventDefault();
     if (!inPlay()) return;
     for (const t of e.changedTouches) {
       const p = toUI(t.clientX, t.clientY), b = buttonAt(p.x, p.y);
       if (b) { touches.set(t.identifier, b.id); buttonDown(b); }
-      else if (p.x < W * 0.42 && p.y > 110) {
+      else if (p.x < W * 0.4 && p.y > 100) {
         if (stick.id !== null) continue;
-        stick.id = t.identifier; stick.bx = clamp(p.x, SLIDE.half * 0.7, W * 0.42 - 40); stick.by = clamp(p.y, 200, H - 60);
-        stick.x = p.x; touches.set(t.identifier, 'stick'); stickCalc();
+        stick.id = t.identifier; stick.bx = clamp(p.x, STICK_R * 0.6, W * 0.4); stick.by = clamp(p.y, STICK_R * 0.6 + 120, H - STICK_R * 0.6);
+        stick.x = p.x; stick.y = p.y; touches.set(t.identifier, 'stick'); stickCalc();
       } else if (p.x > W * 0.5) {
         if (lookT.id !== null) continue;
         lookT.id = t.identifier; lookT.x0 = p.x; lookT.v = 0; touches.set(t.identifier, 'look');
@@ -106,10 +108,7 @@
     for (const t of e.changedTouches) {
       const k = touches.get(t.identifier), p = toUI(t.clientX, t.clientY);
       if (k === 'stick') {
-        stick.x = p.x;
-        const dx = stick.x - stick.bx, lim = SLIDE.half * 1.3;  // drag the base along when overshooting
-        if (Math.abs(dx) > lim) stick.bx += dx - Math.sign(dx) * lim;
-        stickCalc();
+        stick.x = p.x; stick.y = p.y; stickCalc();
       } else if (k === 'look') lookT.v = clamp((p.x - lookT.x0) / 220, -1, 1);
     }
   }
@@ -117,13 +116,13 @@
     if (e.cancelable) e.preventDefault();
     for (const t of e.changedTouches) {
       const k = touches.get(t.identifier); touches.delete(t.identifier);
-      if (k === 'stick') { stick.id = null; stick.v = 0; stick.bx = SLIDE.cx; stick.by = SLIDE.cy; stick.x = SLIDE.cx; }
+      if (k === 'stick') stickReset();
       else if (k === 'look') { lookT.id = null; lookT.v = 0; }
       else if (k && B[k]) B[k].down = Math.max(0, B[k].down - 1);
     }
   }
   function releaseTouches() {
-    touches.clear(); stick.id = lookT.id = null; stick.v = lookT.v = 0; stick.bx = stick.x = SLIDE.cx; stick.by = SLIDE.cy;
+    touches.clear(); stickReset(); lookT.id = null; lookT.v = 0;
     BTN.forEach(b => (b.down = 0));
   }
 
@@ -172,9 +171,10 @@
     const rate = target === 0 || Math.sign(target) !== Math.sign(kSteer) ? 9 : 5;
     kSteer += clamp(target - kSteer, -rate * dt, rate * dt);
     if (Math.abs(kSteer) < 1e-3 && target === 0) kSteer = 0;
-    state.steer = clamp(kSteer + stick.v + pad.steer, -1, 1);
-    state.throttle = clamp(Math.max(kd('KeyW', 'ArrowUp') ? 1 : 0, B.kick.down > 0 ? 1 : 0, pad.thr), 0, 1);
-    state.brake = clamp(Math.max(kd('KeyS', 'ArrowDown') ? 1 : 0, pad.brk), 0, 1);
+    const fwd = Math.max(0, stick.my), back = Math.max(0, -stick.my);
+    state.steer = clamp(kSteer + stick.mx + pad.steer, -1, 1);
+    state.throttle = clamp(Math.max(kd('KeyW', 'ArrowUp') ? 1 : 0, fwd > 0.9 ? 1 : fwd, pad.thr), 0, 1);
+    state.brake = clamp(Math.max(kd('KeyS', 'ArrowDown') ? 1 : 0, back, pad.brk), 0, 1);
     state.drift = keys.has('Space') || B.drift.down > 0 || pad.drift;
     const boost = kd('ShiftLeft', 'ShiftRight') || keys.has('KeyE') || B.fart.down > 0 || pad.boost;
     if (boost && !prevBoost) pend.boostPressed = true;
@@ -232,18 +232,6 @@
         ctx.bezierCurveTo(x + 7 * Math.sin(ph), y0 - 6, x - 7 * Math.sin(ph), y0 - 12, x, y0 - 18); ctx.stroke();
       }
     },
-    kick(ctx) {  // a bare cartoon foot (sole view) with toes
-      ctx.save(); ctx.rotate(-0.25);
-      ctx.beginPath(); ctx.moveTo(-10, 30); ctx.quadraticCurveTo(-20, 8, -14, -10); ctx.quadraticCurveTo(-6, -24, 10, -18);
-      ctx.quadraticCurveTo(18, -8, 12, 8); ctx.quadraticCurveTo(8, 22, 10, 30); ctx.quadraticCurveTo(0, 38, -10, 30); ctx.closePath();
-      ctx.fillStyle = '#f2c79a'; ctx.fill(); ink(ctx, 3.5);
-      [[-12, -22, 6], [-3, -28, 5.5], [5, -28, 5], [12, -23, 4.5], [17, -16, 4]].forEach(([x, y, r]) => {
-        ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = '#f2c79a'; ctx.fill(); ink(ctx, 3);
-      });
-      ctx.restore();
-      ctx.strokeStyle = '#fff6d8'; ctx.lineWidth = 3.5; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(24, -6); ctx.lineTo(34, -10); ctx.moveTo(24, 4); ctx.lineTo(36, 4); ctx.moveTo(24, 14); ctx.lineTo(34, 18); ctx.stroke();
-    },
     drift(ctx) {  // a curved skid arrow
       ctx.beginPath(); ctx.arc(0, 8, 22, Math.PI * 1.05, Math.PI * 1.95);
       ctx.lineWidth = 11; ctx.strokeStyle = INK; ctx.lineCap = 'round'; ctx.stroke();
@@ -258,39 +246,53 @@
       [-8, 8].forEach(x => { ctx.beginPath(); ctx.rect(x - 5, -13, 10, 26); ctx.fill(); ink(ctx, 3); });
     },
   };
-  const BTN_COL = { fart: '#f2b233', kick: '#3a9ad9', drift: '#e0457b', pause: '#6b6b6b' };
-  const BTN_TXT = { fart: 'FART!', kick: 'KICK', drift: 'DRIFT' };
+  const BTN_COL = { fart: '#f2b233', drift: '#e0457b', pause: '#6b6b6b' };
+  const BTN_TXT = { fart: 'FART!', drift: 'DRIFT' };
 
   function currentSel() {
     if (localSel && core && core.time - selT < 0.4) return localSel;
     return (BR.rules && BR.rules.gasSel) || (BR.cart && BR.cart.gasSel) || localSel || 'beans';
   }
-  function drawSlider(ctx, t) {
-    const active = stick.id !== null, bx = stick.bx, by = stick.by, hw = SLIDE.half;
+  function drawStick(ctx, t) {
+    const R = STICK_R, active = stick.id !== null, bx = stick.bx, by = stick.by;
+    const full = stick.my > 0.9, back = stick.my < -0.05;
     ctx.save();
-    ctx.globalAlpha = active ? 0.97 : 0.62;
-    ctx.fillStyle = 'rgba(0,0,0,0.25)'; roundRect(ctx, bx - hw - 30 + 4, by - 26 + 6, hw * 2 + 60, 52, 26); ctx.fill();
-    ctx.fillStyle = '#ffe08a'; roundRect(ctx, bx - hw - 30, by - 26, hw * 2 + 60, 52, 26); ctx.fill();
-    ctx.lineWidth = 5; ctx.strokeStyle = INK; ctx.stroke();
-    ctx.fillStyle = 'rgba(42,22,6,0.18)'; roundRect(ctx, bx - hw, by - 6, hw * 2, 12, 6); ctx.fill();
-    [-1, 1].forEach(s => {
-      const ax = bx + s * (hw + 8);
-      ctx.beginPath(); ctx.moveTo(ax + s * 12, by); ctx.lineTo(ax - s * 6, by - 13); ctx.lineTo(ax - s * 6, by + 13); ctx.closePath();
-      ctx.fillStyle = (s < 0 ? stick.v < -0.05 : stick.v > 0.05) ? '#ff7a1a' : '#8a5a2b'; ctx.fill(); ink(ctx, 3);
-    });
-    const kx = bx + clamp(stick.x - bx, -hw, hw), ky = by, kr = 44, on = active;
-    ctx.save(); ctx.translate(kx, ky); ctx.rotate(stick.v * 0.6);
+    ctx.globalAlpha = active ? 0.97 : 0.6;
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.arc(bx + 4, by + 7, R, 0, TAU); ctx.fill();
+    let g = ctx.createRadialGradient(bx, by, R * 0.2, bx, by, R);
+    g.addColorStop(0, 'rgba(255,240,190,0.35)'); g.addColorStop(1, full ? 'rgba(255,150,40,0.7)' : 'rgba(255,224,138,0.62)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
+    ctx.lineWidth = 12; ctx.strokeStyle = full ? '#ff7a1a' : '#ffd24a'; ctx.stroke();
+    ctx.lineWidth = 4; ctx.strokeStyle = INK;
+    ctx.beginPath(); ctx.arc(bx, by, R + 6, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.arc(bx, by, R - 6, 0, TAU); ctx.stroke();
+    ctx.setLineDash([6, 8]); ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(42,22,6,0.4)';
+    ctx.beginPath(); ctx.arc(bx, by, R * DEAD + 8, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    // arrows: up = GO (green), down = STOP (red), left/right = steer
+    const hot = [stick.my > 0.05, stick.mx > 0.05, back, stick.mx < -0.05];
+    const col = ['#4cc23a', '#ffb02e', '#e8412e', '#ffb02e'];
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2 - Math.PI / 2, cx = bx + Math.cos(a) * (R - 28), cy = by + Math.sin(a) * (R - 28);
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(a + Math.PI / 2);
+      ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(12, 6); ctx.lineTo(-12, 6); ctx.closePath();
+      ctx.fillStyle = hot[i] ? col[i] : 'rgba(138,90,43,0.8)'; ctx.fill(); ink(ctx, 3); ctx.restore();
+    }
+    let kx = bx, ky = by;
+    if (active) { const dx = stick.x - bx, dy = stick.y - by, l = Math.hypot(dx, dy), m = Math.min(l, R); if (l > 0) { kx = bx + dx / l * m; ky = by + dy / l * m; } }
+    const kr = 48, sq = active ? 1 : 0;
+    ctx.save(); ctx.translate(kx, ky); ctx.scale(1 + 0.06 * sq, 1 - 0.06 * sq); ctx.rotate(stick.mx * 0.6);
     ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.arc(3, 6, kr, 0, TAU); ctx.fill();
-    if (on) { ctx.shadowColor = 'rgba(255,200,60,0.95)'; ctx.shadowBlur = 24; }
-    const g = ctx.createRadialGradient(-12, -14, 4, 0, 0, kr); g.addColorStop(0, '#fff'); g.addColorStop(0.2, '#e94b3c'); g.addColorStop(1, '#8e1c12');
+    if (active) { ctx.shadowColor = full ? 'rgba(255,110,20,0.95)' : 'rgba(255,200,60,0.95)'; ctx.shadowBlur = full ? 30 + 8 * Math.sin(t * 12) : 22; }
+    g = ctx.createRadialGradient(-12, -14, 4, 0, 0, kr); g.addColorStop(0, '#fff'); g.addColorStop(0.2, '#e94b3c'); g.addColorStop(1, '#8e1c12');
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, kr, 0, TAU); ctx.fill(); ctx.shadowBlur = 0; ink(ctx, 5);
-    // a steering-wheel cross on the knob
     ctx.beginPath(); ctx.arc(0, 0, kr * 0.62, 0, TAU); ctx.lineWidth = 6; ctx.strokeStyle = '#fff6d8'; ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-kr * 0.62, 0); ctx.lineTo(kr * 0.62, 0); ctx.moveTo(0, 0); ctx.lineTo(0, kr * 0.62); ctx.stroke();
     ctx.beginPath(); ctx.arc(0, 0, 7, 0, TAU); ctx.fillStyle = '#fff6d8'; ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.ellipse(-kr * 0.3, -kr * 0.5, kr * 0.34, kr * 0.15, -0.4, 0, TAU); ctx.fill();
     ctx.restore();
     ctx.restore();
-    if (!active) label(ctx, 'STEER', bx, by - 50, 20);
+    if (!active) label(ctx, 'DRIVE', bx, by - R - 22, 20);
+    else if (full) label(ctx, 'FULL SPEED!', bx, by - R - 22, 20);
+    else if (back) label(ctx, 'BRAKE', bx, by - R - 22, 20);
   }
   function roundRect(ctx, x, y, w, h, r) {
     ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
@@ -340,7 +342,7 @@
     if (!ctx) return;
     t = t || 0;
     ctx.save();
-    drawSlider(ctx, t);
+    drawStick(ctx, t);
     if (lookT.id !== null) {
       ctx.globalAlpha = 0.4; ctx.lineWidth = 4; ctx.strokeStyle = '#fff6d8';
       ctx.beginPath(); ctx.arc(lookT.x0 + lookT.v * 220, 360, 30, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1;

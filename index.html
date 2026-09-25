@@ -86028,16 +86028,15 @@ window.BR = window.BR || {};
 
   // ── Touch layout (1280x720 UI space) ──
   const BTN = [
-    { id: 'fart', r: 75, x: 1072, y: 585, kind: 'hold' },
-    { id: 'kick', r: 56, x: 890, y: 640, kind: 'hold' },
-    { id: 'drift', r: 48, x: 930, y: 470, kind: 'hold' },
+    { id: 'fart', r: 78, x: 1080, y: 580, kind: 'hold' },
+    { id: 'drift', r: 54, x: 900, y: 632, kind: 'hold' },
     { id: 'pause', r: 30, x: 50, y: 50, kind: 'press' },
   ];
   GAS.forEach((g, i) => BTN.push({ id: 'gas' + (i + 1), gas: g, r: 33, x: 1232, y: 118 + i * 76, kind: 'gas', n: i + 1 }));
   BTN.forEach(b => { b.down = 0; b.flash = 0; });
   const B = {}; BTN.forEach(b => (B[b.id] = b));
-  const SLIDE = { cx: 230, cy: 600, half: 150 };
-  const stick = { id: null, bx: SLIDE.cx, by: SLIDE.cy, x: SLIDE.cx, v: 0 };
+  const STICK_R = 110, HOME = { x: 200, y: 560 };
+  const stick = { id: null, bx: HOME.x, by: HOME.y, x: HOME.x, y: HOME.y, mx: 0, my: 0 };
   const lookT = { id: null, x0: 0, v: 0 };
   const touches = new Map();
 
@@ -86056,20 +86055,23 @@ window.BR = window.BR || {};
     else if (b.id === 'pause') pend.pause = true;
     else if (b.kind === 'gas') selectGas(b.n);
   }
-  function stickCalc() {
-    const dx = stick.x - stick.bx, raw = clamp(dx / SLIDE.half, -1, 1), a = Math.abs(raw);
-    stick.v = a < DEAD ? 0 : Math.sign(raw) * (a - DEAD) / (1 - DEAD);
+  function stickCalc() {  // floating stick: the base follows the thumb when it overshoots
+    let dx = stick.x - stick.bx, dy = stick.y - stick.by, len = Math.hypot(dx, dy);
+    if (len > STICK_R * 1.35) { const f = (len - STICK_R * 1.35) / len; stick.bx += dx * f; stick.by += dy * f; dx = stick.x - stick.bx; dy = stick.y - stick.by; len = Math.hypot(dx, dy); }
+    const raw = Math.min(1, len / STICK_R), m = raw < DEAD ? 0 : (raw - DEAD) / (1 - DEAD);
+    stick.mx = len > 0 ? dx / len * m : 0; stick.my = len > 0 ? -dy / len * m : 0;
   }
+  function stickReset() { stick.id = null; stick.mx = stick.my = 0; stick.bx = stick.x = HOME.x; stick.by = stick.y = HOME.y; }
   function onTouchStart(e) {
     if (e.cancelable) e.preventDefault();
     if (!inPlay()) return;
     for (const t of e.changedTouches) {
       const p = toUI(t.clientX, t.clientY), b = buttonAt(p.x, p.y);
       if (b) { touches.set(t.identifier, b.id); buttonDown(b); }
-      else if (p.x < W * 0.42 && p.y > 110) {
+      else if (p.x < W * 0.4 && p.y > 100) {
         if (stick.id !== null) continue;
-        stick.id = t.identifier; stick.bx = clamp(p.x, SLIDE.half * 0.7, W * 0.42 - 40); stick.by = clamp(p.y, 200, H - 60);
-        stick.x = p.x; touches.set(t.identifier, 'stick'); stickCalc();
+        stick.id = t.identifier; stick.bx = clamp(p.x, STICK_R * 0.6, W * 0.4); stick.by = clamp(p.y, STICK_R * 0.6 + 120, H - STICK_R * 0.6);
+        stick.x = p.x; stick.y = p.y; touches.set(t.identifier, 'stick'); stickCalc();
       } else if (p.x > W * 0.5) {
         if (lookT.id !== null) continue;
         lookT.id = t.identifier; lookT.x0 = p.x; lookT.v = 0; touches.set(t.identifier, 'look');
@@ -86082,10 +86084,7 @@ window.BR = window.BR || {};
     for (const t of e.changedTouches) {
       const k = touches.get(t.identifier), p = toUI(t.clientX, t.clientY);
       if (k === 'stick') {
-        stick.x = p.x;
-        const dx = stick.x - stick.bx, lim = SLIDE.half * 1.3;  // drag the base along when overshooting
-        if (Math.abs(dx) > lim) stick.bx += dx - Math.sign(dx) * lim;
-        stickCalc();
+        stick.x = p.x; stick.y = p.y; stickCalc();
       } else if (k === 'look') lookT.v = clamp((p.x - lookT.x0) / 220, -1, 1);
     }
   }
@@ -86093,13 +86092,13 @@ window.BR = window.BR || {};
     if (e.cancelable) e.preventDefault();
     for (const t of e.changedTouches) {
       const k = touches.get(t.identifier); touches.delete(t.identifier);
-      if (k === 'stick') { stick.id = null; stick.v = 0; stick.bx = SLIDE.cx; stick.by = SLIDE.cy; stick.x = SLIDE.cx; }
+      if (k === 'stick') stickReset();
       else if (k === 'look') { lookT.id = null; lookT.v = 0; }
       else if (k && B[k]) B[k].down = Math.max(0, B[k].down - 1);
     }
   }
   function releaseTouches() {
-    touches.clear(); stick.id = lookT.id = null; stick.v = lookT.v = 0; stick.bx = stick.x = SLIDE.cx; stick.by = SLIDE.cy;
+    touches.clear(); stickReset(); lookT.id = null; lookT.v = 0;
     BTN.forEach(b => (b.down = 0));
   }
 
@@ -86148,9 +86147,10 @@ window.BR = window.BR || {};
     const rate = target === 0 || Math.sign(target) !== Math.sign(kSteer) ? 9 : 5;
     kSteer += clamp(target - kSteer, -rate * dt, rate * dt);
     if (Math.abs(kSteer) < 1e-3 && target === 0) kSteer = 0;
-    state.steer = clamp(kSteer + stick.v + pad.steer, -1, 1);
-    state.throttle = clamp(Math.max(kd('KeyW', 'ArrowUp') ? 1 : 0, B.kick.down > 0 ? 1 : 0, pad.thr), 0, 1);
-    state.brake = clamp(Math.max(kd('KeyS', 'ArrowDown') ? 1 : 0, pad.brk), 0, 1);
+    const fwd = Math.max(0, stick.my), back = Math.max(0, -stick.my);
+    state.steer = clamp(kSteer + stick.mx + pad.steer, -1, 1);
+    state.throttle = clamp(Math.max(kd('KeyW', 'ArrowUp') ? 1 : 0, fwd > 0.9 ? 1 : fwd, pad.thr), 0, 1);
+    state.brake = clamp(Math.max(kd('KeyS', 'ArrowDown') ? 1 : 0, back, pad.brk), 0, 1);
     state.drift = keys.has('Space') || B.drift.down > 0 || pad.drift;
     const boost = kd('ShiftLeft', 'ShiftRight') || keys.has('KeyE') || B.fart.down > 0 || pad.boost;
     if (boost && !prevBoost) pend.boostPressed = true;
@@ -86208,18 +86208,6 @@ window.BR = window.BR || {};
         ctx.bezierCurveTo(x + 7 * Math.sin(ph), y0 - 6, x - 7 * Math.sin(ph), y0 - 12, x, y0 - 18); ctx.stroke();
       }
     },
-    kick(ctx) {  // a bare cartoon foot (sole view) with toes
-      ctx.save(); ctx.rotate(-0.25);
-      ctx.beginPath(); ctx.moveTo(-10, 30); ctx.quadraticCurveTo(-20, 8, -14, -10); ctx.quadraticCurveTo(-6, -24, 10, -18);
-      ctx.quadraticCurveTo(18, -8, 12, 8); ctx.quadraticCurveTo(8, 22, 10, 30); ctx.quadraticCurveTo(0, 38, -10, 30); ctx.closePath();
-      ctx.fillStyle = '#f2c79a'; ctx.fill(); ink(ctx, 3.5);
-      [[-12, -22, 6], [-3, -28, 5.5], [5, -28, 5], [12, -23, 4.5], [17, -16, 4]].forEach(([x, y, r]) => {
-        ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = '#f2c79a'; ctx.fill(); ink(ctx, 3);
-      });
-      ctx.restore();
-      ctx.strokeStyle = '#fff6d8'; ctx.lineWidth = 3.5; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(24, -6); ctx.lineTo(34, -10); ctx.moveTo(24, 4); ctx.lineTo(36, 4); ctx.moveTo(24, 14); ctx.lineTo(34, 18); ctx.stroke();
-    },
     drift(ctx) {  // a curved skid arrow
       ctx.beginPath(); ctx.arc(0, 8, 22, Math.PI * 1.05, Math.PI * 1.95);
       ctx.lineWidth = 11; ctx.strokeStyle = INK; ctx.lineCap = 'round'; ctx.stroke();
@@ -86234,39 +86222,53 @@ window.BR = window.BR || {};
       [-8, 8].forEach(x => { ctx.beginPath(); ctx.rect(x - 5, -13, 10, 26); ctx.fill(); ink(ctx, 3); });
     },
   };
-  const BTN_COL = { fart: '#f2b233', kick: '#3a9ad9', drift: '#e0457b', pause: '#6b6b6b' };
-  const BTN_TXT = { fart: 'FART!', kick: 'KICK', drift: 'DRIFT' };
+  const BTN_COL = { fart: '#f2b233', drift: '#e0457b', pause: '#6b6b6b' };
+  const BTN_TXT = { fart: 'FART!', drift: 'DRIFT' };
 
   function currentSel() {
     if (localSel && core && core.time - selT < 0.4) return localSel;
     return (BR.rules && BR.rules.gasSel) || (BR.cart && BR.cart.gasSel) || localSel || 'beans';
   }
-  function drawSlider(ctx, t) {
-    const active = stick.id !== null, bx = stick.bx, by = stick.by, hw = SLIDE.half;
+  function drawStick(ctx, t) {
+    const R = STICK_R, active = stick.id !== null, bx = stick.bx, by = stick.by;
+    const full = stick.my > 0.9, back = stick.my < -0.05;
     ctx.save();
-    ctx.globalAlpha = active ? 0.97 : 0.62;
-    ctx.fillStyle = 'rgba(0,0,0,0.25)'; roundRect(ctx, bx - hw - 30 + 4, by - 26 + 6, hw * 2 + 60, 52, 26); ctx.fill();
-    ctx.fillStyle = '#ffe08a'; roundRect(ctx, bx - hw - 30, by - 26, hw * 2 + 60, 52, 26); ctx.fill();
-    ctx.lineWidth = 5; ctx.strokeStyle = INK; ctx.stroke();
-    ctx.fillStyle = 'rgba(42,22,6,0.18)'; roundRect(ctx, bx - hw, by - 6, hw * 2, 12, 6); ctx.fill();
-    [-1, 1].forEach(s => {
-      const ax = bx + s * (hw + 8);
-      ctx.beginPath(); ctx.moveTo(ax + s * 12, by); ctx.lineTo(ax - s * 6, by - 13); ctx.lineTo(ax - s * 6, by + 13); ctx.closePath();
-      ctx.fillStyle = (s < 0 ? stick.v < -0.05 : stick.v > 0.05) ? '#ff7a1a' : '#8a5a2b'; ctx.fill(); ink(ctx, 3);
-    });
-    const kx = bx + clamp(stick.x - bx, -hw, hw), ky = by, kr = 44, on = active;
-    ctx.save(); ctx.translate(kx, ky); ctx.rotate(stick.v * 0.6);
+    ctx.globalAlpha = active ? 0.97 : 0.6;
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.arc(bx + 4, by + 7, R, 0, TAU); ctx.fill();
+    let g = ctx.createRadialGradient(bx, by, R * 0.2, bx, by, R);
+    g.addColorStop(0, 'rgba(255,240,190,0.35)'); g.addColorStop(1, full ? 'rgba(255,150,40,0.7)' : 'rgba(255,224,138,0.62)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
+    ctx.lineWidth = 12; ctx.strokeStyle = full ? '#ff7a1a' : '#ffd24a'; ctx.stroke();
+    ctx.lineWidth = 4; ctx.strokeStyle = INK;
+    ctx.beginPath(); ctx.arc(bx, by, R + 6, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.arc(bx, by, R - 6, 0, TAU); ctx.stroke();
+    ctx.setLineDash([6, 8]); ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(42,22,6,0.4)';
+    ctx.beginPath(); ctx.arc(bx, by, R * DEAD + 8, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    // arrows: up = GO (green), down = STOP (red), left/right = steer
+    const hot = [stick.my > 0.05, stick.mx > 0.05, back, stick.mx < -0.05];
+    const col = ['#4cc23a', '#ffb02e', '#e8412e', '#ffb02e'];
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2 - Math.PI / 2, cx = bx + Math.cos(a) * (R - 28), cy = by + Math.sin(a) * (R - 28);
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(a + Math.PI / 2);
+      ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(12, 6); ctx.lineTo(-12, 6); ctx.closePath();
+      ctx.fillStyle = hot[i] ? col[i] : 'rgba(138,90,43,0.8)'; ctx.fill(); ink(ctx, 3); ctx.restore();
+    }
+    let kx = bx, ky = by;
+    if (active) { const dx = stick.x - bx, dy = stick.y - by, l = Math.hypot(dx, dy), m = Math.min(l, R); if (l > 0) { kx = bx + dx / l * m; ky = by + dy / l * m; } }
+    const kr = 48, sq = active ? 1 : 0;
+    ctx.save(); ctx.translate(kx, ky); ctx.scale(1 + 0.06 * sq, 1 - 0.06 * sq); ctx.rotate(stick.mx * 0.6);
     ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.arc(3, 6, kr, 0, TAU); ctx.fill();
-    if (on) { ctx.shadowColor = 'rgba(255,200,60,0.95)'; ctx.shadowBlur = 24; }
-    const g = ctx.createRadialGradient(-12, -14, 4, 0, 0, kr); g.addColorStop(0, '#fff'); g.addColorStop(0.2, '#e94b3c'); g.addColorStop(1, '#8e1c12');
+    if (active) { ctx.shadowColor = full ? 'rgba(255,110,20,0.95)' : 'rgba(255,200,60,0.95)'; ctx.shadowBlur = full ? 30 + 8 * Math.sin(t * 12) : 22; }
+    g = ctx.createRadialGradient(-12, -14, 4, 0, 0, kr); g.addColorStop(0, '#fff'); g.addColorStop(0.2, '#e94b3c'); g.addColorStop(1, '#8e1c12');
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, kr, 0, TAU); ctx.fill(); ctx.shadowBlur = 0; ink(ctx, 5);
-    // a steering-wheel cross on the knob
     ctx.beginPath(); ctx.arc(0, 0, kr * 0.62, 0, TAU); ctx.lineWidth = 6; ctx.strokeStyle = '#fff6d8'; ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-kr * 0.62, 0); ctx.lineTo(kr * 0.62, 0); ctx.moveTo(0, 0); ctx.lineTo(0, kr * 0.62); ctx.stroke();
     ctx.beginPath(); ctx.arc(0, 0, 7, 0, TAU); ctx.fillStyle = '#fff6d8'; ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.ellipse(-kr * 0.3, -kr * 0.5, kr * 0.34, kr * 0.15, -0.4, 0, TAU); ctx.fill();
     ctx.restore();
     ctx.restore();
-    if (!active) label(ctx, 'STEER', bx, by - 50, 20);
+    if (!active) label(ctx, 'DRIVE', bx, by - R - 22, 20);
+    else if (full) label(ctx, 'FULL SPEED!', bx, by - R - 22, 20);
+    else if (back) label(ctx, 'BRAKE', bx, by - R - 22, 20);
   }
   function roundRect(ctx, x, y, w, h, r) {
     ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
@@ -86316,7 +86318,7 @@ window.BR = window.BR || {};
     if (!ctx) return;
     t = t || 0;
     ctx.save();
-    drawSlider(ctx, t);
+    drawStick(ctx, t);
     if (lookT.id !== null) {
       ctx.globalAlpha = 0.4; ctx.lineWidth = 4; ctx.strokeStyle = '#fff6d8';
       ctx.beginPath(); ctx.arc(lookT.x0 + lookT.v * 220, 360, 30, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1;
@@ -86596,7 +86598,7 @@ window.BR = window.BR || {};
     BR.bus.on('score', d => {
       if (S.state !== 'PLAY' || !d || !d.points) return;
       const sp = project(d.pos), n = S.pops.length;
-      S.pops.push({ c: popSpr(d.points, d.reason), t0: now(), x: clamp(sp ? sp.x : 640 + (Math.random() - 0.5) * 160, 300, 980), y: clamp(sp ? sp.y - 40 : 330, 220, 470) - (n % 3) * 44 });
+      S.pops.push({ c: popSpr(d.points, d.reason), t0: now(), x: clamp(sp ? sp.x : 640 + (Math.random() - 0.5) * 160, BR.core && BR.core.isTouch ? 600 : 300, BR.core && BR.core.isTouch ? 800 : 980), y: clamp(sp ? sp.y - 40 : 330, 220, 470) - (n % 3) * 44 });
       if (S.pops.length > 6) S.pops.shift();
       S.scoreBump = now();
     });
@@ -86606,8 +86608,8 @@ window.BR = window.BR || {};
       if (t - (S.fartLast[type] || -9) < gap) return;
       S.fartLast[type] = t;
       const big = type === 'burrito', touch = !!(BR.core && BR.core.isTouch);
-      const x = big ? 640 : (touch ? 460 + Math.random() * 360 : 330 + Math.random() * 620), y = big ? 420 : 470 + Math.random() * 70;
-      S.farts.push({ c: burstSpr(type, d.power), t0: t, x, y, rot: (Math.random() - 0.5) * 0.35, big, life: big ? 1.5 : type === 'cheese' ? 1.6 : 1.0, cheese: type === 'cheese' });
+      const x = big ? (touch ? 680 : 640) : (touch ? 580 + Math.random() * 220 : 330 + Math.random() * 620), y = big ? (touch ? 380 : 420) : (touch ? 320 + Math.random() * 80 : 470 + Math.random() * 70);
+      S.farts.push({ c: burstSpr(type, d.power), t0: t, x, y, sc: touch ? 0.7 : 1, rot: (Math.random() - 0.5) * 0.35, big, life: big ? 1.5 : type === 'cheese' ? 1.6 : 1.0, cheese: type === 'cheese' });
       if (S.farts.length > 6) S.farts.shift();
     });
     BR.bus.on('eat', d => {
@@ -86619,6 +86621,11 @@ window.BR = window.BR || {};
       if (!GI[g]) g = 'beans';
       S.eats.push({ gas: g, t0: now() }); if (S.eats.length > 5) S.eats.shift();
       S.slotPop[g] = now();
+    });
+    BR.bus.on('collect', d => {
+      const it = d && d.item, rl = (BR.rules && BR.rules.list) || [];
+      const id = it && typeof it === 'object' ? it.id : it, name = (it && it.name) || ((rl.find(x => x.id === id) || (CFG().LIST_ITEMS || []).find(x => x.id === id)) || {}).name;
+      if (name) S.takenAt[name] = now();
     });
     BR.bus.on('announce', d => { if (d && d.text) { S.pa.q.push(String(d.text)); if (S.pa.q.length > 4) S.pa.q.shift(); } });
   }
@@ -86636,7 +86643,7 @@ window.BR = window.BR || {};
   function pauseBtns() { return [B('RESUME', { type: 'resume' }, 490, 350, 300, 84, '#3cc84a'), B('QUIT TO TITLE', { type: 'title' }, 490, 452, 300, 68, '#ff7a2a')]; }
   function resultsBtns() { return [B('PLAY AGAIN', { type: 'again' }, 345, 634, 300, 72, '#3cc84a'), B('TITLE', { type: 'title' }, 675, 634, 260, 72, '#3a9cff')]; }
   function gasPanel(v) {
-    return v.isTouch ? { x: 424, y: 628, w: 380, h: 86, sw: 72, pad: 10 } : { x: 420, y: 600, w: 440, h: 108, sw: 84, pad: 10 };
+    return v.isTouch ? { x: 516, y: 632, w: 312, h: 80, sw: 60, pad: 6 } : { x: 420, y: 600, w: 440, h: 108, sw: 84, pad: 10 };
   }
   function gasSlots(v) {
     const P = gasPanel(v); return GAS().map((id, i) => ({ id, x: P.x + P.pad + i * P.sw, y: P.y, w: P.sw, h: P.h, act: { type: 'gas', id } }));
@@ -86809,8 +86816,7 @@ window.BR = window.BR || {};
 
   // ── HUD ────────────────────────────────────────────────────────────────────
   function hudL(v) {
-    return v.isTouch ? { rx: 12, ry: 96, rw: 330, rowH: 37, fs: 22, right: 1180, speedo: false }
-      : { rx: 16, ry: 52, rw: 292, rowH: 32, fs: 17, right: 1258, speedo: true };
+    return v.isTouch ? { right: 1180, speedo: false } : { right: 1258, speedo: true };
   }
   const itemIcon = it => it.icon || ((CFG().LIST_ITEMS || []).find(x => x.name === it.name || x.id === it.id) || {}).icon || '🛍️';
   function paperPath(g, x, y, w, h, tt) {
@@ -86829,35 +86835,6 @@ window.BR = window.BR || {};
     }
     for (let i = 0; i < 4; i++) { const q = g.createRadialGradient(r() * w, r() * h, 0, r() * w, r() * h, 60); q.addColorStop(0, 'rgba(150,120,80,0.08)'); q.addColorStop(1, 'rgba(150,120,80,0)'); g.fillStyle = q; g.fillRect(0, 0, w, h); }
   }
-  function receiptSpr(list, L) {
-    const key = 'R' + L.rw + L.rowH + list.map(i => i.name + (i.taken ? 1 : 0)).join('|');
-    if (S.recKey === key) return S.recSpr;
-    const w = L.rw, top = 68, n = list.length, h = top + n * L.rowH + 46, c = mk(w + 10, h + 10), g = c.getContext('2d');
-    paperPath(g, 6, 7, w, h, 9); g.fillStyle = 'rgba(42,18,4,0.35)'; g.fill();
-    paperPath(g, 0, 0, w, h, 9); g.fillStyle = '#fffaf0'; g.fill();
-    g.save(); g.clip(); crumple(g, w, h, 77); g.restore();
-    paperPath(g, 0, 0, w, h, 9); g.lineWidth = 3; g.strokeStyle = INK; g.stroke();
-    font(g, 12); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#8a7a66'; g.fillText('BULKZILLA WAREHOUSE', w / 2, 22);
-    txt(g, 'SHOPPING LIST', w / 2, 44, 23, INK, { stroke: false });
-    const dash = y => { g.setLineDash([6, 5]); g.strokeStyle = '#b0a08a'; g.lineWidth = 2; g.beginPath(); g.moveTo(14, y); g.lineTo(w - 14, y); g.stroke(); g.setLineDash([]); };
-    dash(62);
-    list.forEach((it, i) => {
-      const y = top + i * L.rowH + L.rowH / 2;
-      g.globalAlpha = it.taken ? 0.5 : 1; drawEmo(g, itemIcon(it), 26, y, L.rowH * 0.78); g.globalAlpha = 1;
-      let px = L.fs; const maxW = w - 50 - 42; while (px > 11 && tw(g, it.name, px) > maxW) px--;
-      font(g, px); g.textAlign = 'left'; g.fillStyle = it.taken ? '#a89880' : INK; g.fillText(it.name, 48, y + 1);
-      if (it.taken) {
-        const ww = g.measureText(it.name).width;
-        g.strokeStyle = '#e8302a'; g.lineWidth = 3.5; g.lineCap = 'round'; g.beginPath(); g.moveTo(44, y + 2);
-        for (let k = 0; k <= 8; k++) g.lineTo(44 + (ww + 8) * k / 8, y + 1 + Math.sin(k * 1.7 + i) * 2.2);
-        g.stroke();
-      }
-    });
-    dash(top + n * L.rowH + 6);
-    const got = list.filter(i => i.taken).length;
-    txt(g, 'GOT ' + got + ' / ' + n, w / 2, h - 22, 18, got === n ? '#2a9a30' : INK, { stroke: false });
-    S.recKey = key; S.recSpr = c; c.top = top; return c;
-  }
   function checkPath(g, x, y, s) { g.beginPath(); g.moveTo(x - 9 * s, y); g.lineTo(x - 2 * s, y + 8 * s); g.lineTo(x + 12 * s, y - 10 * s); }
   function checkoutInfo() {
     const c = BR.cart; if (!c || !c.pos) return null;
@@ -86874,37 +86851,46 @@ window.BR = window.BR || {};
     const fwd = -Math.sin(yaw) * dx - Math.cos(yaw) * dz, rgt = Math.cos(yaw) * dx - Math.sin(yaw) * dz;
     return { dist: bd, ang: Math.atan2(rgt, fwd) };
   }
-  function drawReceipt(g, t, v, L, near) {
+  // Compact list: item icon chips under the clock (names only in a 2 s tooltip on collect).
+  const ROW = { cy: 172, chip: 44, gap: 7 };
+  function drawItems(g, t, v, near) {
     const list = v.list || []; if (!list.length) return;
-    const c = receiptSpr(list, L), T = t - S.runT;
-    const slide = easeOutBack((T - 0.2) / 0.6), x0 = L.rx - (1 - slide) * 360;
-    let jig = 0;
+    const T = t - S.runT, n = list.length, step = ROW.chip + ROW.gap, x0 = 640 - (n * step - ROW.gap) / 2 + ROW.chip / 2;
     list.forEach(it => {
       if (it.taken && S.takenAt[it.name] == null) S.takenAt[it.name] = T < 0.3 ? -9 : t;
       if (!it.taken) delete S.takenAt[it.name];
-      const a = t - (S.takenAt[it.name] || -9); if (a < 0.4) jig = Math.max(jig, 1 - a / 0.4);
     });
-    const x = x0 + Math.sin(t * 50) * jig * 4, y = L.ry;
-    g.drawImage(c, x, y);
-    const allGot = list.every(i => i.taken);
+    const tips = [];
     list.forEach((it, i) => {
-      const ry = y + c.top + i * L.rowH + L.rowH / 2;
+      const x = x0 + i * step, a = t - (S.takenAt[it.name] || -9), inE = easeOutBack((T - 0.15 - i * 0.05) / 0.4);
+      if (inE <= 0) return;
+      const pop = it.taken && a < 0.5 ? 1 + (1 - elastic(a / 0.5)) * 0.5 : 1, pulse = !it.taken && near ? 0.5 + 0.5 * Math.sin(t * 9) : 0;
+      const s = inE * pop * (1 + pulse * 0.1), h = ROW.chip;
+      g.save(); g.translate(x, ROW.cy); g.scale(s, s);
+      g.globalAlpha = it.taken && a > 0.5 ? 0.55 : 1;
+      rr(g, -h / 2 + 3, -h / 2 + 4, h, h, 12); g.fillStyle = 'rgba(42,18,4,0.4)'; g.fill();
+      rr(g, -h / 2, -h / 2, h, h, 12); g.fillStyle = INK; g.fill();
+      rr(g, -h / 2 + 3, -h / 2 + 3, h - 6, h - 6, 10); g.fillStyle = pulse ? `rgb(255,${Math.round(220 - pulse * 140)},${Math.round(200 - pulse * 150)})` : it.taken ? '#d8f4c8' : '#fff4d6'; g.fill();
+      drawEmo(g, itemIcon(it), 0, 1, h * 0.72);
+      g.globalAlpha = 1;
       if (it.taken) {
-        const a = t - (S.takenAt[it.name] || -9), s = a > 1 ? 1 : 0.2 + easeOutBack(a / 0.35) * 0.8;
-        g.save(); g.translate(x + L.rw - 22, ry); g.scale(s * 1.2, s * 1.2); g.lineCap = g.lineJoin = 'round';
-        checkPath(g, 0, 0, 1); g.strokeStyle = INK; g.lineWidth = 9; g.stroke(); g.strokeStyle = '#3cc84a'; g.lineWidth = 4.5; g.stroke(); g.restore();
-      } else if (near) {
-        const p = 0.5 + 0.5 * Math.sin(t * 9);
-        rr(g, x + 6, ry - L.rowH / 2 + 2, L.rw - 12, L.rowH - 4, 8);
-        g.fillStyle = `rgba(255,60,40,${0.12 + p * 0.15})`; g.fill(); g.lineWidth = 3; g.strokeStyle = `rgba(232,48,42,${0.5 + p * 0.5})`; g.stroke();
-        txt(g, '!', x + L.rw - 22, ry, 22, '#ff4a30', { lw: 6 });
+        const cs = a > 1 ? 1 : 0.2 + easeOutBack(a / 0.35) * 0.8;
+        g.translate(h * 0.3, h * 0.28); g.scale(cs * 0.8, cs * 0.8); g.lineCap = g.lineJoin = 'round';
+        checkPath(g, 0, 0, 1); g.strokeStyle = INK; g.lineWidth = 9; g.stroke(); g.strokeStyle = '#3cc84a'; g.lineWidth = 4.5; g.stroke();
+      } else if (pulse) {
+        rr(g, -h / 2 - 2, -h / 2 - 2, h + 4, h + 4, 13); g.lineWidth = 3; g.strokeStyle = `rgba(255,40,30,${0.4 + pulse * 0.6})`; g.stroke();
       }
+      g.restore();
+      if (it.taken && a < 2) tips.push({ x, a, it });
     });
-    if (near && !allGot) {
-      const tsw = 190, s = 1 + Math.sin(t * 8) * 0.05;
-      g.save(); g.translate(x + L.rw - 40, y + c.height - 14); g.rotate(-0.08); g.scale(s, s);
-      g.drawImage(sticker(tsw, 40, '#ff4a30', { r: 12 }), -tsw / 2, -20); txt(g, 'STILL NEED!', 2, 1, 21, '#ffffff', { lw: 6 }); g.restore();
-    }
+    tips.forEach(tp => {
+      const e = easeOutBack(tp.a / 0.3), al = sat((2 - tp.a) / 0.3), s = '+ ' + tp.it.name, w = tw(g, s, 18) + 28;
+      const x = clamp(tp.x, w / 2 + 330, 950 - w / 2), y = ROW.cy + 46;
+      g.save(); g.globalAlpha = al; g.translate(x, y); g.scale(e, e);
+      g.beginPath(); g.moveTo(tp.x - x - 9, -16); g.lineTo(tp.x - x, -26); g.lineTo(tp.x - x + 9, -16); g.closePath(); g.fillStyle = INK; g.fill();
+      g.drawImage(sticker(w, 34, '#3cc84a', { r: 17, rim: 0 }), -w / 2 - 2, -19);
+      txt(g, s, 0, -1, 18, '#ffffff', { lw: 5 }); g.restore();
+    });
   }
   const clockFace = () => once('clockF', () => {
     const c = mk(84, 84), g = c.getContext('2d');
@@ -87041,8 +87027,8 @@ window.BR = window.BR || {};
         if (f >= 0.99) { g.globalAlpha = 0.4 + 0.3 * Math.sin(t * 8); g.drawImage(glowSpr(I.hi), gx - 18, gy - 10, 52, th + 20); g.globalAlpha = 1; }
       }
       const pop = t - (S.slotPop[id] || -9), ps = pop < 0.5 ? 1 + (1 - elastic(pop / 0.5)) * 0.5 : 1;
-      const icx = sl.x + (v.isTouch ? 44 : 50), icy = P.y + (v.isTouch ? 42 : 48) - (on ? 8 + Math.abs(Math.sin(t * 5)) * 3 : 0);
-      const s = (on ? 1.2 : 1) * ps, r = (v.isTouch ? 22 : 26) * s;
+      const icx = sl.x + (v.isTouch ? 38 : 50), icy = P.y + (v.isTouch ? 38 : 48) - (on ? 8 + Math.abs(Math.sin(t * 5)) * 3 : 0);
+      const s = (on ? 1.2 : 1) * ps, r = (v.isTouch ? 17 : 26) * s;
       if (on) { g.globalAlpha = 0.85; g.drawImage(glowSpr(I.hi), icx - r * 2, icy - r * 2, r * 4, r * 4); g.globalAlpha = 1; }
       g.beginPath(); g.arc(icx, icy, r + 4, 0, TAU); g.fillStyle = INK; g.fill();
       g.beginPath(); g.arc(icx, icy, r, 0, TAU); g.fillStyle = on ? '#ffffff' : '#f4e8d0'; g.fill();
@@ -87068,8 +87054,8 @@ window.BR = window.BR || {};
       });
     } else {
       const mph = Math.round(Math.abs(v.speed || 0) * 2.237), s = mph + ' MPH', sw = tw(g, s, 18) + 30;
-      g.drawImage(sticker(sw, 32, mph > 35 ? '#ff4a30' : '#3a9cff', { r: 16, rim: 0 }), 614 - sw / 2, P.y - 36);
-      txt(g, s, 616, P.y - 19, 18, '#ffffff', { lw: 5 });
+      g.drawImage(sticker(sw, 32, mph > 35 ? '#ff4a30' : '#3a9cff', { r: 16, rim: 0 }), 672 - sw / 2, P.y - 36);
+      txt(g, s, 674, P.y - 19, 18, '#ffffff', { lw: 5 });
     }
     // +GAS pickups
     S.eats = S.eats.filter(e => t - e.t0 < 1.1);
@@ -87127,7 +87113,7 @@ window.BR = window.BR || {};
     S.farts.forEach(f => {
       const a = (t - f.t0) / f.life, e = f.cheese ? easeOut(a * 3) : elastic(a * (f.big ? 2 : 2.6));
       const shk = f.big && a < 0.4 ? (Math.random() - 0.5) * 12 : 0;
-      drawC(g, f.c, f.x + shk, f.y + shk - (f.cheese ? a * 40 : 0), (f.big ? 0.85 : 0.8) * (0.2 + e * 0.8), f.rot, f.cheese ? (1 - a) * 1.2 * 0.8 : (1 - a) * 3);
+      drawC(g, f.c, f.x + shk, f.y + shk - (f.cheese ? a * 40 : 0), (f.sc || 1) * (f.big ? 0.85 : 0.8) * (0.2 + e * 0.8), f.rot, f.cheese ? (1 - a) * 1.2 * 0.8 : (1 - a) * 3);
     });
     S.pops = S.pops.filter(p => t - p.t0 < 1.5);
     S.pops.forEach(p => {
@@ -87147,12 +87133,12 @@ window.BR = window.BR || {};
     if (allGot && !S.allT) S.allT = t; if (!allGot) S.allT = 0;
     const near = !allGot && !!info && info.dist < 20;
     drawTicker(g, t, v);
-    drawReceipt(g, t, v, L, near);
     drawClock(g, t, v);
+    if (!allGot) drawItems(g, t, v, near);
     drawWanted(g, t, v, L);
     drawScore(g, t, v, L);
     if (allGot) drawCheckout(g, t, v, info);
-    drawGas(g, t, v);
+    if (!v.isTouch) drawGas(g, t, v);
     if (L.speedo) drawSpeedo(g, t, v);
     drawPops(g, t);
     drawGo(g, t);
@@ -87178,7 +87164,7 @@ window.BR = window.BR || {};
   };
   function resInfo(v) {
     const r = v.results || {}, win = !!r.win, caught = !win && /caught|thrown|guard|security/i.test(r.reason || '');
-    const bd = Array.isArray(r.breakdown) ? r.breakdown.filter(b => b && b.label != null) : [];
+    const bd = Array.isArray(r.breakdown) ? r.breakdown.filter(b => b && b.label != null && !/^\s*total\s*$/i.test(String(b.label))) : [];
     const total = r.score != null ? r.score : bd.reduce((a, b) => a + (+b.points || 0), 0);
     const newBest = win && total > 0 && (r.newBest != null ? !!r.newBest : total > S.bestRef);
     return { r, win, caught, bd, total, newBest };
@@ -87247,8 +87233,8 @@ window.BR = window.BR || {};
       txt(g, fmt(R.total * easeOut(k)), rx + c.width - 30, ry + c.totalY, 30, '#e8302a', { align: 'right', stroke: false });
     }
     if (R.newBest) {
-      stamp(g, 'NEW BEST!', rx + c.width - 90, ry + 70, '#e8302a', S.stateT + (S.resSkip ? -10 : doneT + 0.2), t, 0.25);
-      if (T > doneT + 0.5) { const e = t - S.stateT; for (let i = 0; i < 3; i++) drawC(g, glowSpr('#ffe23a'), rx + c.width - 90 + Math.cos(e * 3 + i * 2) * 110, ry + 70 + Math.sin(e * 3 + i * 2) * 40, 0.2, 0, 0.8); }
+      stamp(g, 'NEW BEST!', rx + c.width + 175, ry + c.totalY - 40, '#e8302a', S.stateT + (S.resSkip ? -10 : doneT + 0.2), t, 0.25);
+      if (T > doneT + 0.5) { const e = t - S.stateT; for (let i = 0; i < 3; i++) drawC(g, glowSpr('#ffe23a'), rx + c.width + 175 + Math.cos(e * 3 + i * 2) * 150, ry + c.totalY - 40 + Math.sin(e * 3 + i * 2) * 40, 0.2, 0, 0.8); }
     }
     if (!R.win) stamp(g, R.caught ? 'BANNED' : 'CLOSED', 640 + 20, ry + c.totalY + 62, R.caught ? '#e8302a' : '#7a4ae0', S.stateT + (S.resSkip ? -10 : doneT + 0.2), t, -0.22);
     if (T > 0.8) drawBtns(g, resultsBtns(), t, v);
@@ -87396,14 +87382,14 @@ window.BR = window.BR || {};
     const c = BR.cart;
     if (!c || !c.pos) { camera.position.set(0, 8, 64); camera.lookAt(0, 1, 40); return; }
     const yaw = c.yaw || 0, sp = Math.min(1, (c.speed || 0) / C.CART.maxSpeed);
-    const back = 6.5 + sp * 2.5, up = 3.2 + sp * 0.8 + (c.airborne ? 1.2 : 0);
+    const back = 4.0 + sp * 1.6, up = 2.1 + sp * 0.5 + (c.airborne ? 0.9 : 0); // close chase: the man fills the lower middle of the screen
     const look = (core.input.look || 0) * 1.2;
     tmp.set(c.pos.x + Math.sin(yaw + look) * back, c.pos.y + up, c.pos.z + Math.cos(yaw + look) * back);
     // keep the camera inside the store and out of the shelves
     if (has('store', 'collide')) BR.store.collide(tmp, 0.4);
     camPos.lerp(tmp, 1 - Math.exp(-dt * 6));
     if (has('store', 'collide')) BR.store.collide(camPos, 0.4); // the lerp can cut through a rack corner
-    camLook.lerp(tmp.set(c.pos.x - Math.sin(yaw) * 4, c.pos.y + 1.2, c.pos.z - Math.cos(yaw) * 4), 1 - Math.exp(-dt * 10));
+    camLook.lerp(tmp.set(c.pos.x - Math.sin(yaw) * 3, c.pos.y + 1.5, c.pos.z - Math.cos(yaw) * 3), 1 - Math.exp(-dt * 10));
     camera.position.copy(camPos); camera.lookAt(camLook);
     fovKick += ((c.boosting ? 14 : 0) + sp * 8 - fovKick) * Math.min(1, dt * 4);
     camera.fov = 62 + fovKick; camera.updateProjectionMatrix();

@@ -243,7 +243,7 @@ window.BR = window.BR || {};
     BR.bus.on('score', d => {
       if (S.state !== 'PLAY' || !d || !d.points) return;
       const sp = project(d.pos), n = S.pops.length;
-      S.pops.push({ c: popSpr(d.points, d.reason), t0: now(), x: clamp(sp ? sp.x : 640 + (Math.random() - 0.5) * 160, 300, 980), y: clamp(sp ? sp.y - 40 : 330, 220, 470) - (n % 3) * 44 });
+      S.pops.push({ c: popSpr(d.points, d.reason), t0: now(), x: clamp(sp ? sp.x : 640 + (Math.random() - 0.5) * 160, BR.core && BR.core.isTouch ? 600 : 300, BR.core && BR.core.isTouch ? 800 : 980), y: clamp(sp ? sp.y - 40 : 330, 220, 470) - (n % 3) * 44 });
       if (S.pops.length > 6) S.pops.shift();
       S.scoreBump = now();
     });
@@ -253,8 +253,8 @@ window.BR = window.BR || {};
       if (t - (S.fartLast[type] || -9) < gap) return;
       S.fartLast[type] = t;
       const big = type === 'burrito', touch = !!(BR.core && BR.core.isTouch);
-      const x = big ? 640 : (touch ? 460 + Math.random() * 360 : 330 + Math.random() * 620), y = big ? 420 : 470 + Math.random() * 70;
-      S.farts.push({ c: burstSpr(type, d.power), t0: t, x, y, rot: (Math.random() - 0.5) * 0.35, big, life: big ? 1.5 : type === 'cheese' ? 1.6 : 1.0, cheese: type === 'cheese' });
+      const x = big ? (touch ? 680 : 640) : (touch ? 580 + Math.random() * 220 : 330 + Math.random() * 620), y = big ? (touch ? 380 : 420) : (touch ? 320 + Math.random() * 80 : 470 + Math.random() * 70);
+      S.farts.push({ c: burstSpr(type, d.power), t0: t, x, y, sc: touch ? 0.7 : 1, rot: (Math.random() - 0.5) * 0.35, big, life: big ? 1.5 : type === 'cheese' ? 1.6 : 1.0, cheese: type === 'cheese' });
       if (S.farts.length > 6) S.farts.shift();
     });
     BR.bus.on('eat', d => {
@@ -266,6 +266,11 @@ window.BR = window.BR || {};
       if (!GI[g]) g = 'beans';
       S.eats.push({ gas: g, t0: now() }); if (S.eats.length > 5) S.eats.shift();
       S.slotPop[g] = now();
+    });
+    BR.bus.on('collect', d => {
+      const it = d && d.item, rl = (BR.rules && BR.rules.list) || [];
+      const id = it && typeof it === 'object' ? it.id : it, name = (it && it.name) || ((rl.find(x => x.id === id) || (CFG().LIST_ITEMS || []).find(x => x.id === id)) || {}).name;
+      if (name) S.takenAt[name] = now();
     });
     BR.bus.on('announce', d => { if (d && d.text) { S.pa.q.push(String(d.text)); if (S.pa.q.length > 4) S.pa.q.shift(); } });
   }
@@ -283,7 +288,7 @@ window.BR = window.BR || {};
   function pauseBtns() { return [B('RESUME', { type: 'resume' }, 490, 350, 300, 84, '#3cc84a'), B('QUIT TO TITLE', { type: 'title' }, 490, 452, 300, 68, '#ff7a2a')]; }
   function resultsBtns() { return [B('PLAY AGAIN', { type: 'again' }, 345, 634, 300, 72, '#3cc84a'), B('TITLE', { type: 'title' }, 675, 634, 260, 72, '#3a9cff')]; }
   function gasPanel(v) {
-    return v.isTouch ? { x: 424, y: 628, w: 380, h: 86, sw: 72, pad: 10 } : { x: 420, y: 600, w: 440, h: 108, sw: 84, pad: 10 };
+    return v.isTouch ? { x: 516, y: 632, w: 312, h: 80, sw: 60, pad: 6 } : { x: 420, y: 600, w: 440, h: 108, sw: 84, pad: 10 };
   }
   function gasSlots(v) {
     const P = gasPanel(v); return GAS().map((id, i) => ({ id, x: P.x + P.pad + i * P.sw, y: P.y, w: P.sw, h: P.h, act: { type: 'gas', id } }));
@@ -456,8 +461,7 @@ window.BR = window.BR || {};
 
   // ── HUD ────────────────────────────────────────────────────────────────────
   function hudL(v) {
-    return v.isTouch ? { rx: 12, ry: 96, rw: 330, rowH: 37, fs: 22, right: 1180, speedo: false }
-      : { rx: 16, ry: 52, rw: 292, rowH: 32, fs: 17, right: 1258, speedo: true };
+    return v.isTouch ? { right: 1180, speedo: false } : { right: 1258, speedo: true };
   }
   const itemIcon = it => it.icon || ((CFG().LIST_ITEMS || []).find(x => x.name === it.name || x.id === it.id) || {}).icon || '🛍️';
   function paperPath(g, x, y, w, h, tt) {
@@ -476,35 +480,6 @@ window.BR = window.BR || {};
     }
     for (let i = 0; i < 4; i++) { const q = g.createRadialGradient(r() * w, r() * h, 0, r() * w, r() * h, 60); q.addColorStop(0, 'rgba(150,120,80,0.08)'); q.addColorStop(1, 'rgba(150,120,80,0)'); g.fillStyle = q; g.fillRect(0, 0, w, h); }
   }
-  function receiptSpr(list, L) {
-    const key = 'R' + L.rw + L.rowH + list.map(i => i.name + (i.taken ? 1 : 0)).join('|');
-    if (S.recKey === key) return S.recSpr;
-    const w = L.rw, top = 68, n = list.length, h = top + n * L.rowH + 46, c = mk(w + 10, h + 10), g = c.getContext('2d');
-    paperPath(g, 6, 7, w, h, 9); g.fillStyle = 'rgba(42,18,4,0.35)'; g.fill();
-    paperPath(g, 0, 0, w, h, 9); g.fillStyle = '#fffaf0'; g.fill();
-    g.save(); g.clip(); crumple(g, w, h, 77); g.restore();
-    paperPath(g, 0, 0, w, h, 9); g.lineWidth = 3; g.strokeStyle = INK; g.stroke();
-    font(g, 12); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#8a7a66'; g.fillText('BULKZILLA WAREHOUSE', w / 2, 22);
-    txt(g, 'SHOPPING LIST', w / 2, 44, 23, INK, { stroke: false });
-    const dash = y => { g.setLineDash([6, 5]); g.strokeStyle = '#b0a08a'; g.lineWidth = 2; g.beginPath(); g.moveTo(14, y); g.lineTo(w - 14, y); g.stroke(); g.setLineDash([]); };
-    dash(62);
-    list.forEach((it, i) => {
-      const y = top + i * L.rowH + L.rowH / 2;
-      g.globalAlpha = it.taken ? 0.5 : 1; drawEmo(g, itemIcon(it), 26, y, L.rowH * 0.78); g.globalAlpha = 1;
-      let px = L.fs; const maxW = w - 50 - 42; while (px > 11 && tw(g, it.name, px) > maxW) px--;
-      font(g, px); g.textAlign = 'left'; g.fillStyle = it.taken ? '#a89880' : INK; g.fillText(it.name, 48, y + 1);
-      if (it.taken) {
-        const ww = g.measureText(it.name).width;
-        g.strokeStyle = '#e8302a'; g.lineWidth = 3.5; g.lineCap = 'round'; g.beginPath(); g.moveTo(44, y + 2);
-        for (let k = 0; k <= 8; k++) g.lineTo(44 + (ww + 8) * k / 8, y + 1 + Math.sin(k * 1.7 + i) * 2.2);
-        g.stroke();
-      }
-    });
-    dash(top + n * L.rowH + 6);
-    const got = list.filter(i => i.taken).length;
-    txt(g, 'GOT ' + got + ' / ' + n, w / 2, h - 22, 18, got === n ? '#2a9a30' : INK, { stroke: false });
-    S.recKey = key; S.recSpr = c; c.top = top; return c;
-  }
   function checkPath(g, x, y, s) { g.beginPath(); g.moveTo(x - 9 * s, y); g.lineTo(x - 2 * s, y + 8 * s); g.lineTo(x + 12 * s, y - 10 * s); }
   function checkoutInfo() {
     const c = BR.cart; if (!c || !c.pos) return null;
@@ -521,37 +496,46 @@ window.BR = window.BR || {};
     const fwd = -Math.sin(yaw) * dx - Math.cos(yaw) * dz, rgt = Math.cos(yaw) * dx - Math.sin(yaw) * dz;
     return { dist: bd, ang: Math.atan2(rgt, fwd) };
   }
-  function drawReceipt(g, t, v, L, near) {
+  // Compact list: item icon chips under the clock (names only in a 2 s tooltip on collect).
+  const ROW = { cy: 172, chip: 44, gap: 7 };
+  function drawItems(g, t, v, near) {
     const list = v.list || []; if (!list.length) return;
-    const c = receiptSpr(list, L), T = t - S.runT;
-    const slide = easeOutBack((T - 0.2) / 0.6), x0 = L.rx - (1 - slide) * 360;
-    let jig = 0;
+    const T = t - S.runT, n = list.length, step = ROW.chip + ROW.gap, x0 = 640 - (n * step - ROW.gap) / 2 + ROW.chip / 2;
     list.forEach(it => {
       if (it.taken && S.takenAt[it.name] == null) S.takenAt[it.name] = T < 0.3 ? -9 : t;
       if (!it.taken) delete S.takenAt[it.name];
-      const a = t - (S.takenAt[it.name] || -9); if (a < 0.4) jig = Math.max(jig, 1 - a / 0.4);
     });
-    const x = x0 + Math.sin(t * 50) * jig * 4, y = L.ry;
-    g.drawImage(c, x, y);
-    const allGot = list.every(i => i.taken);
+    const tips = [];
     list.forEach((it, i) => {
-      const ry = y + c.top + i * L.rowH + L.rowH / 2;
+      const x = x0 + i * step, a = t - (S.takenAt[it.name] || -9), inE = easeOutBack((T - 0.15 - i * 0.05) / 0.4);
+      if (inE <= 0) return;
+      const pop = it.taken && a < 0.5 ? 1 + (1 - elastic(a / 0.5)) * 0.5 : 1, pulse = !it.taken && near ? 0.5 + 0.5 * Math.sin(t * 9) : 0;
+      const s = inE * pop * (1 + pulse * 0.1), h = ROW.chip;
+      g.save(); g.translate(x, ROW.cy); g.scale(s, s);
+      g.globalAlpha = it.taken && a > 0.5 ? 0.55 : 1;
+      rr(g, -h / 2 + 3, -h / 2 + 4, h, h, 12); g.fillStyle = 'rgba(42,18,4,0.4)'; g.fill();
+      rr(g, -h / 2, -h / 2, h, h, 12); g.fillStyle = INK; g.fill();
+      rr(g, -h / 2 + 3, -h / 2 + 3, h - 6, h - 6, 10); g.fillStyle = pulse ? `rgb(255,${Math.round(220 - pulse * 140)},${Math.round(200 - pulse * 150)})` : it.taken ? '#d8f4c8' : '#fff4d6'; g.fill();
+      drawEmo(g, itemIcon(it), 0, 1, h * 0.72);
+      g.globalAlpha = 1;
       if (it.taken) {
-        const a = t - (S.takenAt[it.name] || -9), s = a > 1 ? 1 : 0.2 + easeOutBack(a / 0.35) * 0.8;
-        g.save(); g.translate(x + L.rw - 22, ry); g.scale(s * 1.2, s * 1.2); g.lineCap = g.lineJoin = 'round';
-        checkPath(g, 0, 0, 1); g.strokeStyle = INK; g.lineWidth = 9; g.stroke(); g.strokeStyle = '#3cc84a'; g.lineWidth = 4.5; g.stroke(); g.restore();
-      } else if (near) {
-        const p = 0.5 + 0.5 * Math.sin(t * 9);
-        rr(g, x + 6, ry - L.rowH / 2 + 2, L.rw - 12, L.rowH - 4, 8);
-        g.fillStyle = `rgba(255,60,40,${0.12 + p * 0.15})`; g.fill(); g.lineWidth = 3; g.strokeStyle = `rgba(232,48,42,${0.5 + p * 0.5})`; g.stroke();
-        txt(g, '!', x + L.rw - 22, ry, 22, '#ff4a30', { lw: 6 });
+        const cs = a > 1 ? 1 : 0.2 + easeOutBack(a / 0.35) * 0.8;
+        g.translate(h * 0.3, h * 0.28); g.scale(cs * 0.8, cs * 0.8); g.lineCap = g.lineJoin = 'round';
+        checkPath(g, 0, 0, 1); g.strokeStyle = INK; g.lineWidth = 9; g.stroke(); g.strokeStyle = '#3cc84a'; g.lineWidth = 4.5; g.stroke();
+      } else if (pulse) {
+        rr(g, -h / 2 - 2, -h / 2 - 2, h + 4, h + 4, 13); g.lineWidth = 3; g.strokeStyle = `rgba(255,40,30,${0.4 + pulse * 0.6})`; g.stroke();
       }
+      g.restore();
+      if (it.taken && a < 2) tips.push({ x, a, it });
     });
-    if (near && !allGot) {
-      const tsw = 190, s = 1 + Math.sin(t * 8) * 0.05;
-      g.save(); g.translate(x + L.rw - 40, y + c.height - 14); g.rotate(-0.08); g.scale(s, s);
-      g.drawImage(sticker(tsw, 40, '#ff4a30', { r: 12 }), -tsw / 2, -20); txt(g, 'STILL NEED!', 2, 1, 21, '#ffffff', { lw: 6 }); g.restore();
-    }
+    tips.forEach(tp => {
+      const e = easeOutBack(tp.a / 0.3), al = sat((2 - tp.a) / 0.3), s = '+ ' + tp.it.name, w = tw(g, s, 18) + 28;
+      const x = clamp(tp.x, w / 2 + 330, 950 - w / 2), y = ROW.cy + 46;
+      g.save(); g.globalAlpha = al; g.translate(x, y); g.scale(e, e);
+      g.beginPath(); g.moveTo(tp.x - x - 9, -16); g.lineTo(tp.x - x, -26); g.lineTo(tp.x - x + 9, -16); g.closePath(); g.fillStyle = INK; g.fill();
+      g.drawImage(sticker(w, 34, '#3cc84a', { r: 17, rim: 0 }), -w / 2 - 2, -19);
+      txt(g, s, 0, -1, 18, '#ffffff', { lw: 5 }); g.restore();
+    });
   }
   const clockFace = () => once('clockF', () => {
     const c = mk(84, 84), g = c.getContext('2d');
@@ -688,8 +672,8 @@ window.BR = window.BR || {};
         if (f >= 0.99) { g.globalAlpha = 0.4 + 0.3 * Math.sin(t * 8); g.drawImage(glowSpr(I.hi), gx - 18, gy - 10, 52, th + 20); g.globalAlpha = 1; }
       }
       const pop = t - (S.slotPop[id] || -9), ps = pop < 0.5 ? 1 + (1 - elastic(pop / 0.5)) * 0.5 : 1;
-      const icx = sl.x + (v.isTouch ? 44 : 50), icy = P.y + (v.isTouch ? 42 : 48) - (on ? 8 + Math.abs(Math.sin(t * 5)) * 3 : 0);
-      const s = (on ? 1.2 : 1) * ps, r = (v.isTouch ? 22 : 26) * s;
+      const icx = sl.x + (v.isTouch ? 38 : 50), icy = P.y + (v.isTouch ? 38 : 48) - (on ? 8 + Math.abs(Math.sin(t * 5)) * 3 : 0);
+      const s = (on ? 1.2 : 1) * ps, r = (v.isTouch ? 17 : 26) * s;
       if (on) { g.globalAlpha = 0.85; g.drawImage(glowSpr(I.hi), icx - r * 2, icy - r * 2, r * 4, r * 4); g.globalAlpha = 1; }
       g.beginPath(); g.arc(icx, icy, r + 4, 0, TAU); g.fillStyle = INK; g.fill();
       g.beginPath(); g.arc(icx, icy, r, 0, TAU); g.fillStyle = on ? '#ffffff' : '#f4e8d0'; g.fill();
@@ -715,8 +699,8 @@ window.BR = window.BR || {};
       });
     } else {
       const mph = Math.round(Math.abs(v.speed || 0) * 2.237), s = mph + ' MPH', sw = tw(g, s, 18) + 30;
-      g.drawImage(sticker(sw, 32, mph > 35 ? '#ff4a30' : '#3a9cff', { r: 16, rim: 0 }), 614 - sw / 2, P.y - 36);
-      txt(g, s, 616, P.y - 19, 18, '#ffffff', { lw: 5 });
+      g.drawImage(sticker(sw, 32, mph > 35 ? '#ff4a30' : '#3a9cff', { r: 16, rim: 0 }), 672 - sw / 2, P.y - 36);
+      txt(g, s, 674, P.y - 19, 18, '#ffffff', { lw: 5 });
     }
     // +GAS pickups
     S.eats = S.eats.filter(e => t - e.t0 < 1.1);
@@ -774,7 +758,7 @@ window.BR = window.BR || {};
     S.farts.forEach(f => {
       const a = (t - f.t0) / f.life, e = f.cheese ? easeOut(a * 3) : elastic(a * (f.big ? 2 : 2.6));
       const shk = f.big && a < 0.4 ? (Math.random() - 0.5) * 12 : 0;
-      drawC(g, f.c, f.x + shk, f.y + shk - (f.cheese ? a * 40 : 0), (f.big ? 0.85 : 0.8) * (0.2 + e * 0.8), f.rot, f.cheese ? (1 - a) * 1.2 * 0.8 : (1 - a) * 3);
+      drawC(g, f.c, f.x + shk, f.y + shk - (f.cheese ? a * 40 : 0), (f.sc || 1) * (f.big ? 0.85 : 0.8) * (0.2 + e * 0.8), f.rot, f.cheese ? (1 - a) * 1.2 * 0.8 : (1 - a) * 3);
     });
     S.pops = S.pops.filter(p => t - p.t0 < 1.5);
     S.pops.forEach(p => {
@@ -794,12 +778,12 @@ window.BR = window.BR || {};
     if (allGot && !S.allT) S.allT = t; if (!allGot) S.allT = 0;
     const near = !allGot && !!info && info.dist < 20;
     drawTicker(g, t, v);
-    drawReceipt(g, t, v, L, near);
     drawClock(g, t, v);
+    if (!allGot) drawItems(g, t, v, near);
     drawWanted(g, t, v, L);
     drawScore(g, t, v, L);
     if (allGot) drawCheckout(g, t, v, info);
-    drawGas(g, t, v);
+    if (!v.isTouch) drawGas(g, t, v);
     if (L.speedo) drawSpeedo(g, t, v);
     drawPops(g, t);
     drawGo(g, t);
@@ -825,7 +809,7 @@ window.BR = window.BR || {};
   };
   function resInfo(v) {
     const r = v.results || {}, win = !!r.win, caught = !win && /caught|thrown|guard|security/i.test(r.reason || '');
-    const bd = Array.isArray(r.breakdown) ? r.breakdown.filter(b => b && b.label != null) : [];
+    const bd = Array.isArray(r.breakdown) ? r.breakdown.filter(b => b && b.label != null && !/^\s*total\s*$/i.test(String(b.label))) : [];
     const total = r.score != null ? r.score : bd.reduce((a, b) => a + (+b.points || 0), 0);
     const newBest = win && total > 0 && (r.newBest != null ? !!r.newBest : total > S.bestRef);
     return { r, win, caught, bd, total, newBest };
@@ -894,8 +878,8 @@ window.BR = window.BR || {};
       txt(g, fmt(R.total * easeOut(k)), rx + c.width - 30, ry + c.totalY, 30, '#e8302a', { align: 'right', stroke: false });
     }
     if (R.newBest) {
-      stamp(g, 'NEW BEST!', rx + c.width - 90, ry + 70, '#e8302a', S.stateT + (S.resSkip ? -10 : doneT + 0.2), t, 0.25);
-      if (T > doneT + 0.5) { const e = t - S.stateT; for (let i = 0; i < 3; i++) drawC(g, glowSpr('#ffe23a'), rx + c.width - 90 + Math.cos(e * 3 + i * 2) * 110, ry + 70 + Math.sin(e * 3 + i * 2) * 40, 0.2, 0, 0.8); }
+      stamp(g, 'NEW BEST!', rx + c.width + 175, ry + c.totalY - 40, '#e8302a', S.stateT + (S.resSkip ? -10 : doneT + 0.2), t, 0.25);
+      if (T > doneT + 0.5) { const e = t - S.stateT; for (let i = 0; i < 3; i++) drawC(g, glowSpr('#ffe23a'), rx + c.width + 175 + Math.cos(e * 3 + i * 2) * 150, ry + c.totalY - 40 + Math.sin(e * 3 + i * 2) * 40, 0.2, 0, 0.8); }
     }
     if (!R.win) stamp(g, R.caught ? 'BANNED' : 'CLOSED', 640 + 20, ry + c.totalY + 62, R.caught ? '#e8302a' : '#7a4ae0', S.stateT + (S.resSkip ? -10 : doneT + 0.2), t, -0.22);
     if (T > 0.8) drawBtns(g, resultsBtns(), t, v);

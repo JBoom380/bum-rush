@@ -77,14 +77,14 @@
     const c = BR.cart;
     if (!c || !c.pos) { camera.position.set(0, 8, 64); camera.lookAt(0, 1, 40); return; }
     const yaw = c.yaw || 0, sp = Math.min(1, (c.speed || 0) / C.CART.maxSpeed);
-    const back = 6.5 + sp * 2.5, up = 3.2 + sp * 0.8 + (c.airborne ? 1.2 : 0);
+    const back = 4.0 + sp * 1.6, up = 2.1 + sp * 0.5 + (c.airborne ? 0.9 : 0); // close chase: the man fills the lower middle of the screen
     const look = (core.input.look || 0) * 1.2;
     tmp.set(c.pos.x + Math.sin(yaw + look) * back, c.pos.y + up, c.pos.z + Math.cos(yaw + look) * back);
     // keep the camera inside the store and out of the shelves
     if (has('store', 'collide')) BR.store.collide(tmp, 0.4);
     camPos.lerp(tmp, 1 - Math.exp(-dt * 6));
     if (has('store', 'collide')) BR.store.collide(camPos, 0.4); // the lerp can cut through a rack corner
-    camLook.lerp(tmp.set(c.pos.x - Math.sin(yaw) * 4, c.pos.y + 1.2, c.pos.z - Math.cos(yaw) * 4), 1 - Math.exp(-dt * 10));
+    camLook.lerp(tmp.set(c.pos.x - Math.sin(yaw) * 3, c.pos.y + 1.5, c.pos.z - Math.cos(yaw) * 3), 1 - Math.exp(-dt * 10));
     camera.position.copy(camPos); camera.lookAt(camLook);
     fovKick += ((c.boosting ? 14 : 0) + sp * 8 - fovKick) * Math.min(1, dt * 4);
     camera.fov = 62 + fovKick; camera.updateProjectionMatrix();
