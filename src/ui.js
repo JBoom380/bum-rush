@@ -401,7 +401,7 @@ window.BR = window.BR || {};
     });
     // subtitle + tagline
     const se = easeOutBack((T - 0.8) / 0.5);
-    if (se > 0) { g.save(); g.translate(640, 300); g.scale(se, se); txt(g, 'a game by Jon Hill', 0, 0, 34, '#ffffff', { lw: 9, shadow: 4 }); g.restore(); }
+    // subtitle credit removed at John's request (10/7/26)
     const te = easeOutBack((T - 1.1) / 0.5);
     if (te > 0) drawC(g, tagSpr(), 1098, 318, te * (1 + Math.sin(t * 3) * 0.04), -0.2 + Math.sin(t * 1.7) * 0.05);
     // buttons + best

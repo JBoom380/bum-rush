@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Bum Rush</title>
-<meta name="description" content="Bum Rush, a game by Jon Hill. Ride a shopping cart through a giant warehouse store, powered by farts.">
+<meta name="description" content="Bum Rush. Ride a shopping cart through a giant warehouse store, powered by farts.">
 <style>
   html, body { margin:0; height:100%; background:#1a1410; overflow:hidden; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
   #stage { position:absolute; }
@@ -86756,7 +86756,7 @@ window.BR = window.BR || {};
     });
     // subtitle + tagline
     const se = easeOutBack((T - 0.8) / 0.5);
-    if (se > 0) { g.save(); g.translate(640, 300); g.scale(se, se); txt(g, 'a game by Jon Hill', 0, 0, 34, '#ffffff', { lw: 9, shadow: 4 }); g.restore(); }
+    // subtitle credit removed at John's request (10/7/26)
     const te = easeOutBack((T - 1.1) / 0.5);
     if (te > 0) drawC(g, tagSpr(), 1098, 318, te * (1 + Math.sin(t * 3) * 0.04), -0.2 + Math.sin(t * 1.7) * 0.05);
     // buttons + best
